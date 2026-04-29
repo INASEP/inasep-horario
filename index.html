@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Horario de Clases — INASEP</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+  apiKey: "AIzaSyBk5J4F3g_asYFbOsq2SBaZJ-RVjSD3A7Q",
+  authDomain: "inasep-horario.firebaseapp.com",
+  databaseURL: "https://inasep-horario-default-rtdb.firebaseio.com",
+  projectId: "inasep-horario",
+  storageBucket: "inasep-horario.firebasestorage.app",
+  messagingSenderId: "693980982692",
+  appId: "1:693980982692:web:c5e94800bdd9fa2153e531"
+};
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    const DAYS = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
+    const DAYS_SHORT = ["Lun","Mar","Mié","Jue","Vie","Sáb"];
+
+    const COLORS = [
+      { bg: "#E8F5E9", border: "#2E7D32", text: "#1B5E20" },
+      { bg: "#E3F2FD", border: "#1565C0", text: "#0D47A1" },
+      { bg: "#FFF3E0", border: "#EF6C00", text: "#E65100" },
+      { bg: "#F3E5F5", border: "#7B1FA2", text: "#4A148C" },
+      { bg: "#E0F2F1", border: "#00897B", text: "#004D40" },
+      { bg: "#FFF8E1", border: "#F9A825", text: "#F57F17" },
+      { bg: "#E8EAF6", border: "#3949AB", text: "#1A237E" },
+      { bg: "#FCE4EC", border: "#C2185B", text: "#880E4F" },
+    ];
+
+    function getTodayIndex() {
+      const day = new Date().getDay();
+      if (day === 0) return -1;
+      return day - 1;
+    }
+
+    function buildSchedule(data) {
+      const todayIdx = getTodayIndex();
+      const subjectColorMap = {};
+      let colorCounter = 0;
+
+      function getColor(subject) {
+        const key = subject.trim().toLowerCase();
+        if (!subjectColorMap[key]) {
+          subjectColorMap[key] = COLORS[colorCounter % COLORS.length];
+          colorCounter++;
+        }
+        return subjectColorMap[key];
+      }
+
+      const scheduleData = data.horario || data;
+      const sections = Array.isArray(scheduleData) ? null : scheduleData;
+
+      const now = new Date();
+      document.getElementById('current-date').textContent = now.toLocaleDateString('es-CL', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+      });
+
+      const container = document.getElementById('schedule-container');
+      container.innerHTML = '';
+
+      if (sections && typeof sections === 'object' && !Array.isArray(sections)) {
+        const firstKey = Object.keys(sections)[0];
+        const looksLikeDays = DAYS.includes(firstKey) || DAYS_SHORT.includes(firstKey);
+
+        if (looksLikeDays) {
+          const grid = buildDaysGrid(sections, todayIdx, getColor);
+          container.appendChild(grid);
+        } else {
+          Object.entries(sections).forEach(([sectionName, days]) => {
+            const sectionEl = document.createElement('div');
+            sectionEl.className = 'section-block';
+            sectionEl.innerHTML = `<h2 class="section-title">${escapeHtml(sectionName)}</h2>`;
+            sectionEl.appendChild(buildDaysGrid(days, todayIdx, getColor));
+            container.appendChild(sectionEl);
+          });
+        }
+      } else {
+        const grid = buildDaysGrid(scheduleData, todayIdx, getColor);
+        container.appendChild(grid);
+      }
+    }
+
+    function buildDaysGrid(daysData, todayIdx, getColor) {
+      const grid = document.createElement('div');
+      grid.className = 'days-grid';
+
+      DAYS.forEach((day, idx) => {
+        const blocks = daysData[day] || daysData[DAYS_SHORT[idx]] || [];
+        const isToday = idx === todayIdx;
+
+        const col = document.createElement('div');
+        col.className = 'day-column' + (isToday ? ' today' : '');
+
+        const header = document.createElement('div');
+        header.className = 'day-header' + (isToday ? ' today-header' : '');
+        header.innerHTML = `
+          <span class="day-name">${day}</span>
+          ${isToday ? '<span class="today-badge">HOY</span>' : ''}
+        `;
+        col.appendChild(header);
+
+        if (blocks.length === 0) {
+          col.innerHTML += `<div class="empty-day">Sin clases</div>`;
+        } else {
+          blocks.forEach(block => {
+            const subj = block.asignatura || block.ramo || block.materia || block.subject || 'Sin nombre';
+            const hora = block.hora || block.horario || block.time || '';
+            const color = getColor(subj);
+
+            const card = document.createElement('div');
+            card.className = 'subject-card';
+            card.style.cssText = `background:${color.bg};border-left:4px solid ${color.border};`;
+            card.innerHTML = `
+              ${hora ? `<div class="block-time" style="color:${color.border}">${escapeHtml(hora)}</div>` : ''}
+              <div class="block-subject" style="color:${color.text}">${escapeHtml(subj)}</div>
+            `;
+            col.appendChild(card);
+          });
+        }
+
+        grid.appendChild(col);
+      });
+
+      return grid;
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    const scheduleRef = ref(db, 'horario');
+    onValue(scheduleRef, (snapshot) => {
+      const data = snapshot.val();
+      document.getElementById('loading').style.display = 'none';
+      if (!data) {
+        document.getElementById('no-data').style.display = 'flex';
+        document.getElementById('schedule-container').innerHTML = '';
+        return;
+      }
+      document.getElementById('no-data').style.display = 'none';
+      buildSchedule(data);
+    }, (error) => {
+      document.getElementById('loading').innerHTML = `
+        <div style="color:#c62828;text-align:center">
+          <div style="font-size:2rem;margin-bottom:8px">⚠️</div>
+          <div>Error al conectar con Firebase.<br>Verifica la configuración.</div>
+        </div>`;
+    });
+  </script>
+
+  <style>
+    :root {
+      --green-dark: #2D5A4A;
+      --green-mid: #3D7A64;
+      --green-light: #4A9B7F;
+      --gold: #C9A84C;
+      --gold-light: #E8C97A;
+      --cream: #F5F7F6;
+      --white: #FFFFFF;
+      --text: #1a2a3a;
+      --muted: #5a6b7a;
+      --today-glow: 0 0 0 3px #C9A84C, 0 4px 24px rgba(201,168,76,0.25);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--cream);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    header {
+      background: var(--green-dark);
+      position: relative;
+      overflow: hidden;
+    }
+    header::before {
+      content: '';
+      position: absolute;
+      top: -60px; right: -60px;
+      width: 280px; height: 280px;
+      border-radius: 50%;
+      background: rgba(201,168,76,0.08);
+    }
+    header::after {
+      content: '';
+      position: absolute;
+      bottom: -80px; left: 20%;
+      width: 400px; height: 200px;
+      border-radius: 50%;
+      background: rgba(201,168,76,0.05);
+    }
+
+    .header-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 28px 24px 22px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .logo-wrap {
+      width: 72px; height: 72px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.12);
+      border: 2px solid rgba(201,168,76,0.4);
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .logo-wrap img {
+      width: 100%; height: 100%;
+      object-fit: contain;
+      padding: 6px;
+    }
+
+    .header-text { flex: 1; }
+    .header-text h1 {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(1.4rem, 3vw, 2rem);
+      font-weight: 700;
+      color: var(--white);
+      line-height: 1.1;
+      letter-spacing: -0.5px;
+    }
+    .header-text h1 span { color: var(--gold); }
+    .header-text p {
+      color: rgba(255,255,255,0.6);
+      font-size: 0.85rem;
+      margin-top: 6px;
+      font-weight: 400;
+      letter-spacing: 0.3px;
+    }
+
+    .header-contact {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-end;
+    }
+    .contact-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: rgba(255,255,255,0.75);
+      font-size: 0.8rem;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .contact-item:hover { color: var(--gold-light); }
+    .contact-item .icon {
+      width: 24px; height: 24px;
+      background: rgba(201,168,76,0.15);
+      border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .date-bar {
+      background: var(--green-mid);
+      border-bottom: 2px solid var(--gold);
+    }
+    .date-bar-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 10px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    #current-date {
+      color: var(--gold-light);
+      font-size: 0.88rem;
+      font-weight: 500;
+      text-transform: capitalize;
+    }
+    .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(201,168,76,0.12);
+      border: 1px solid rgba(201,168,76,0.3);
+      border-radius: 20px;
+      padding: 3px 10px;
+      color: var(--gold);
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    .live-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #4CAF50;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity:1; transform:scale(1); }
+      50% { opacity:0.4; transform:scale(0.85); }
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 16px 48px;
+    }
+
+    #loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 0;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .spinner {
+      width: 44px; height: 44px;
+      border: 3px solid rgba(45,90,74,0.12);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { color: var(--muted); font-size: 0.9rem; }
+
+    #no-data {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 80px 0;
+      gap: 12px;
+    }
+    #no-data .no-data-icon { font-size: 3rem; }
+    #no-data p {
+      color: var(--muted);
+      text-align: center;
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+    #no-data strong { color: var(--green-dark); }
+
+    .section-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.3rem;
+      color: var(--green-dark);
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid var(--gold);
+    }
+    .section-block { margin-bottom: 40px; }
+
+    .days-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 12px;
+    }
+    @media (max-width: 1024px) {
+      .days-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .days-grid { grid-template-columns: repeat(2, 1fr); }
+      .header-contact { display: none; }
+      .header-text h1 { font-size: 1.2rem; }
+      .header-inner { gap: 14px; padding: 20px 16px 16px; }
+      .logo-wrap { width: 56px; height: 56px; }
+    }
+    @media (max-width: 400px) {
+      .days-grid { grid-template-columns: 1fr; }
+    }
+
+    .day-column {
+      background: var(--white);
+      border-radius: 14px;
+      overflow: hidden;
+      border: 2px solid #e0e8e4;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .day-column:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(45,90,74,0.10);
+    }
+    .day-column.today {
+      border-color: var(--gold);
+      box-shadow: var(--today-glow);
+      transform: translateY(-2px);
+    }
+
+    .day-header {
+      background: var(--green-dark);
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .day-header.today-header { background: var(--gold); }
+    .day-name {
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: rgba(255,255,255,0.9);
+      letter-spacing: 0.3px;
+    }
+    .today-header .day-name { color: var(--green-dark); }
+    .today-badge {
+      background: var(--green-dark);
+      color: var(--gold);
+      font-size: 0.62rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 20px;
+      letter-spacing: 0.8px;
+    }
+
+    .subject-card {
+      margin: 10px 8px;
+      padding: 10px 10px;
+      border-radius: 10px;
+      border-left-width: 4px;
+      border-left-style: solid;
+      transition: transform 0.15s;
+    }
+    .subject-card:hover { transform: scale(1.02); }
+    .block-time {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-bottom: 3px;
+    }
+    .block-subject {
+      font-size: 0.85rem;
+      font-weight: 600;
+      line-height: 1.3;
+      margin-bottom: 4px;
+    }
+
+    .empty-day {
+      padding: 20px 12px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      text-align: center;
+      font-style: italic;
+    }
+
+    footer {
+      background: var(--green-dark);
+      color: rgba(255,255,255,0.45);
+      text-align: center;
+      padding: 18px 16px;
+      font-size: 0.78rem;
+    }
+    footer strong { color: var(--gold); }
+    footer a { color: rgba(255,255,255,0.55); text-decoration: none; transition: color 0.2s; }
+    footer a:hover { color: var(--gold-light); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-inner">
+      <div class="logo-wrap">
+        <img src="logo_inasep.png" alt="INASEP">
+      </div>
+      <div class="header-text">
+        <h1>INASEP <span>/ Horario de Clases</span></h1>
+        <p>INSTITUTO NACIONAL DE SEGURIDAD PRIVADA</p>
+      </div>
+      <div class="header-contact">
+        <a class="contact-item" href="https://wa.me/56944061866" target="_blank">
+          <span class="icon">💬</span> +56 9 4406 1866
+        </a>
+        <a class="contact-item" href="https://www.inasep.cl" target="_blank">
+          <span class="icon">🌐</span> www.inasep.cl
+        </a>
+        <a class="contact-item" href="mailto:instituto@inasep.cl">
+          <span class="icon">✉️</span> instituto@inasep.cl
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <div class="date-bar">
+    <div class="date-bar-inner">
+      <span id="current-date">Cargando fecha…</span>
+      <span class="live-badge"><span class="live-dot"></span> EN VIVO</span>
+    </div>
+  </div>
+
+  <main>
+    <div id="loading">
+      <div class="spinner"></div>
+      <p>Cargando horario…</p>
+    </div>
+
+    <div id="no-data">
+      <div class="no-data-icon">📋</div>
+      <p>El horario aún no ha sido publicado.<br>
+        <strong>Vuelve más tarde o contacta a la institución.</strong></p>
+    </div>
+
+    <div id="schedule-container"></div>
+  </main>
+
+  <footer>
+    <strong>INASEP</strong> &nbsp;·&nbsp;
+    <a href="https://www.inasep.cl">www.inasep.cl</a> &nbsp;·&nbsp;
+    <a href="mailto:instituto@inasep.cl">instituto@inasep.cl</a> &nbsp;·&nbsp;
+    <a href="https://wa.me/56944061866">WhatsApp +56 9 4406 1866</a>
+  </footer>
+
+</body>
+</html>
