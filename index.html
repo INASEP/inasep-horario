@@ -10,15 +10,15 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
     import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-    const firebaseConfig = {
-      apiKey: "TU_API_KEY",
-      authDomain: "TU_PROJECT.firebaseapp.com",
-      databaseURL: "https://TU_PROJECT-default-rtdb.firebaseio.com",
-      projectId: "TU_PROJECT",
-      storageBucket: "TU_PROJECT.appspot.com",
-      messagingSenderId: "TU_SENDER_ID",
-      appId: "TU_APP_ID"
-    };
+  const firebaseConfig = {
+  apiKey: "AIzaSyBk5J4F3g_asYFbOsq2SBaZJ-RVjSD3A7Q",
+  authDomain: "inasep-horario.firebaseapp.com",
+  databaseURL: "https://inasep-horario-default-rtdb.firebaseio.com",
+  projectId: "inasep-horario",
+  storageBucket: "inasep-horario.firebasestorage.app",
+  messagingSenderId: "693980982692",
+  appId: "1:693980982692:web:c5e94800bdd9fa2153e531"
+};
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
@@ -34,16 +34,22 @@
       { bg: "#FCE4EC", border: "#C2185B", text: "#880E4F" },
     ];
 
-    function formatDate(date) {
-      const d = date.getDate().toString().padStart(2, '0');
-      const m = (date.getMonth() + 1).toString().padStart(2, '0');
-      const y = date.getFullYear();
-      return `${d}/${m}/${y}`;
+    function displayDate(key) {
+      // key viene como "04-01-2026", mostramos "04/01/2026"
+      return key.replace(/-/g, '/');
     }
 
-    function parseDateStr(str) {
-      const [d, m, y] = str.split('/').map(Number);
+    function parseDateKey(key) {
+      const [d, m, y] = key.split('-').map(Number);
       return new Date(y, m - 1, d);
+    }
+
+    function todayKey() {
+      const now = new Date();
+      const d = now.getDate().toString().padStart(2, '0');
+      const m = (now.getMonth() + 1).toString().padStart(2, '0');
+      const y = now.getFullYear();
+      return `${d}-${m}-${y}`;
     }
 
     function buildSchedule(data) {
@@ -60,7 +66,7 @@
       }
 
       const scheduleData = data.horario || data;
-      const todayStr = formatDate(new Date());
+      const today = todayKey();
 
       const now = new Date();
       document.getElementById('current-date').textContent = now.toLocaleDateString('es-CL', {
@@ -70,9 +76,8 @@
       const container = document.getElementById('schedule-container');
       container.innerHTML = '';
 
-      // Detectar si es estructura por fechas o por sección/curso
       const firstKey = Object.keys(scheduleData)[0];
-      const looksLikeDate = firstKey && /^\d{2}\/\d{2}\/\d{4}$/.test(firstKey);
+      const looksLikeDate = firstKey && /^\d{2}-\d{2}-\d{4}$/.test(firstKey);
       const sections = looksLikeDate ? null : scheduleData;
 
       if (sections && typeof sections === 'object' && !Array.isArray(sections)) {
@@ -80,27 +85,26 @@
           const sectionEl = document.createElement('div');
           sectionEl.className = 'section-block';
           sectionEl.innerHTML = `<h2 class="section-title">${escapeHtml(sectionName)}</h2>`;
-          sectionEl.appendChild(buildDatesGrid(days, todayStr, getColor));
+          sectionEl.appendChild(buildDatesGrid(days, today, getColor));
           container.appendChild(sectionEl);
         });
       } else {
-        const grid = buildDatesGrid(scheduleData, todayStr, getColor);
+        const grid = buildDatesGrid(scheduleData, today, getColor);
         container.appendChild(grid);
       }
     }
 
-    function buildDatesGrid(daysData, todayStr, getColor) {
+    function buildDatesGrid(daysData, today, getColor) {
       const grid = document.createElement('div');
       grid.className = 'days-grid';
 
-      // Ordenar fechas cronológicamente
       const sortedDates = Object.keys(daysData).sort((a, b) => {
-        return parseDateStr(a) - parseDateStr(b);
+        return parseDateKey(a) - parseDateKey(b);
       });
 
       sortedDates.forEach(dateKey => {
         const blocks = daysData[dateKey] || [];
-        const isToday = dateKey === todayStr;
+        const isToday = dateKey === today;
 
         const col = document.createElement('div');
         col.className = 'day-column' + (isToday ? ' today' : '');
@@ -108,7 +112,7 @@
         const header = document.createElement('div');
         header.className = 'day-header' + (isToday ? ' today-header' : '');
         header.innerHTML = `
-          <span class="day-name">${dateKey}</span>
+          <span class="day-name">${displayDate(dateKey)}</span>
           ${isToday ? '<span class="today-badge">HOY</span>' : ''}
         `;
         col.appendChild(header);
