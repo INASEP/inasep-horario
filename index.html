@@ -10,21 +10,18 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
     import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-  const firebaseConfig = {
-  apiKey: "AIzaSyBk5J4F3g_asYFbOsq2SBaZJ-RVjSD3A7Q",
-  authDomain: "inasep-horario.firebaseapp.com",
-  databaseURL: "https://inasep-horario-default-rtdb.firebaseio.com",
-  projectId: "inasep-horario",
-  storageBucket: "inasep-horario.firebasestorage.app",
-  messagingSenderId: "693980982692",
-  appId: "1:693980982692:web:c5e94800bdd9fa2153e531"
-};
+    const firebaseConfig = {
+      apiKey: "TU_API_KEY",
+      authDomain: "TU_PROJECT.firebaseapp.com",
+      databaseURL: "https://TU_PROJECT-default-rtdb.firebaseio.com",
+      projectId: "TU_PROJECT",
+      storageBucket: "TU_PROJECT.appspot.com",
+      messagingSenderId: "TU_SENDER_ID",
+      appId: "TU_APP_ID"
+    };
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
-
-    const DAYS = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado"];
-    const DAYS_SHORT = ["Lun","Mar","Mié","Jue","Vie","Sáb"];
 
     const COLORS = [
       { bg: "#E8F5E9", border: "#2E7D32", text: "#1B5E20" },
@@ -37,14 +34,19 @@
       { bg: "#FCE4EC", border: "#C2185B", text: "#880E4F" },
     ];
 
-    function getTodayIndex() {
-      const day = new Date().getDay();
-      if (day === 0) return -1;
-      return day - 1;
+    function formatDate(date) {
+      const d = date.getDate().toString().padStart(2, '0');
+      const m = (date.getMonth() + 1).toString().padStart(2, '0');
+      const y = date.getFullYear();
+      return `${d}/${m}/${y}`;
+    }
+
+    function parseDateStr(str) {
+      const [d, m, y] = str.split('/').map(Number);
+      return new Date(y, m - 1, d);
     }
 
     function buildSchedule(data) {
-      const todayIdx = getTodayIndex();
       const subjectColorMap = {};
       let colorCounter = 0;
 
@@ -58,7 +60,7 @@
       }
 
       const scheduleData = data.horario || data;
-      const sections = Array.isArray(scheduleData) ? null : scheduleData;
+      const todayStr = formatDate(new Date());
 
       const now = new Date();
       document.getElementById('current-date').textContent = now.toLocaleDateString('es-CL', {
@@ -68,35 +70,37 @@
       const container = document.getElementById('schedule-container');
       container.innerHTML = '';
 
-      if (sections && typeof sections === 'object' && !Array.isArray(sections)) {
-        const firstKey = Object.keys(sections)[0];
-        const looksLikeDays = DAYS.includes(firstKey) || DAYS_SHORT.includes(firstKey);
+      // Detectar si es estructura por fechas o por sección/curso
+      const firstKey = Object.keys(scheduleData)[0];
+      const looksLikeDate = firstKey && /^\d{2}\/\d{2}\/\d{4}$/.test(firstKey);
+      const sections = looksLikeDate ? null : scheduleData;
 
-        if (looksLikeDays) {
-          const grid = buildDaysGrid(sections, todayIdx, getColor);
-          container.appendChild(grid);
-        } else {
-          Object.entries(sections).forEach(([sectionName, days]) => {
-            const sectionEl = document.createElement('div');
-            sectionEl.className = 'section-block';
-            sectionEl.innerHTML = `<h2 class="section-title">${escapeHtml(sectionName)}</h2>`;
-            sectionEl.appendChild(buildDaysGrid(days, todayIdx, getColor));
-            container.appendChild(sectionEl);
-          });
-        }
+      if (sections && typeof sections === 'object' && !Array.isArray(sections)) {
+        Object.entries(sections).forEach(([sectionName, days]) => {
+          const sectionEl = document.createElement('div');
+          sectionEl.className = 'section-block';
+          sectionEl.innerHTML = `<h2 class="section-title">${escapeHtml(sectionName)}</h2>`;
+          sectionEl.appendChild(buildDatesGrid(days, todayStr, getColor));
+          container.appendChild(sectionEl);
+        });
       } else {
-        const grid = buildDaysGrid(scheduleData, todayIdx, getColor);
+        const grid = buildDatesGrid(scheduleData, todayStr, getColor);
         container.appendChild(grid);
       }
     }
 
-    function buildDaysGrid(daysData, todayIdx, getColor) {
+    function buildDatesGrid(daysData, todayStr, getColor) {
       const grid = document.createElement('div');
       grid.className = 'days-grid';
 
-      DAYS.forEach((day, idx) => {
-        const blocks = daysData[day] || daysData[DAYS_SHORT[idx]] || [];
-        const isToday = idx === todayIdx;
+      // Ordenar fechas cronológicamente
+      const sortedDates = Object.keys(daysData).sort((a, b) => {
+        return parseDateStr(a) - parseDateStr(b);
+      });
+
+      sortedDates.forEach(dateKey => {
+        const blocks = daysData[dateKey] || [];
+        const isToday = dateKey === todayStr;
 
         const col = document.createElement('div');
         col.className = 'day-column' + (isToday ? ' today' : '');
@@ -104,7 +108,7 @@
         const header = document.createElement('div');
         header.className = 'day-header' + (isToday ? ' today-header' : '');
         header.innerHTML = `
-          <span class="day-name">${day}</span>
+          <span class="day-name">${dateKey}</span>
           ${isToday ? '<span class="today-badge">HOY</span>' : ''}
         `;
         col.appendChild(header);
@@ -370,14 +374,14 @@
 
     .days-grid {
       display: grid;
-      grid-template-columns: repeat(6, 1fr);
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
       gap: 12px;
     }
     @media (max-width: 1024px) {
-      .days-grid { grid-template-columns: repeat(3, 1fr); }
+      .days-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
     }
     @media (max-width: 640px) {
-      .days-grid { grid-template-columns: repeat(2, 1fr); }
+      .days-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
       .header-contact { display: none; }
       .header-text h1 { font-size: 1.2rem; }
       .header-inner { gap: 14px; padding: 20px 16px 16px; }
