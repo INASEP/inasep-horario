@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Horario de Clases — INASEP</title>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -520,6 +522,35 @@
       white-space: nowrap;
     }
     footer a:hover { color: var(--gold-light); }
+    /* ── BOTÓN PDF ── */
+    .btn-pdf {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: var(--gold);
+      color: var(--green-dark);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border: none;
+      border-radius: 5px;
+      padding: 5px 14px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.15s, box-shadow 0.2s;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .btn-pdf:hover {
+      background: var(--gold-light);
+      box-shadow: 0 4px 14px rgba(184,151,106,0.35);
+      transform: translateY(-1px);
+    }
+    .btn-pdf:active { transform: translateY(0); }
+    .btn-pdf svg { flex-shrink: 0; }
+    .btn-pdf.loading { opacity: 0.65; cursor: not-allowed; pointer-events: none; }
+
   </style>
 </head>
 <body>
@@ -550,7 +581,15 @@
   <div class="date-bar">
     <div class="date-bar-inner">
       <span id="current-date">Cargando fecha…</span>
-      <span class="live-badge"><span class="live-dot"></span> EN VIVO</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="btn-pdf" id="btn-pdf" onclick="descargarPDF()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Descargar PDF
+        </button>
+        <span class="live-badge"><span class="live-dot"></span> EN VIVO</span>
+      </div>
     </div>
   </div>
 
@@ -575,6 +614,92 @@
     <a href="mailto:instituto@inasep.cl">instituto@inasep.cl</a> &nbsp;·&nbsp;
     <a href="https://wa.me/56944061866">WhatsApp +56 9 4406 1866</a>
   </footer>
+
+  <script>
+    async function descargarPDF() {
+      const btn = document.getElementById('btn-pdf');
+      const container = document.getElementById('schedule-container');
+
+      if (!container || container.innerHTML.trim() === '') {
+        alert('El horario aún no se ha cargado. Espera un momento e intenta nuevamente.');
+        return;
+      }
+
+      btn.classList.add('loading');
+      btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 0.9s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Generando…`;
+
+      try {
+        const { jsPDF } = window.jspdf;
+
+        // Capturar el contenido principal (header + date-bar + main)
+        const captureTarget = document.body;
+
+        const canvas = await html2canvas(captureTarget, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#F2F0EB',
+          logging: false,
+          ignoreElements: (el) => el.id === 'btn-pdf'
+        });
+
+        const imgData = canvas.toDataURL('image/jpeg', 0.92);
+
+        // Tamaño A4 horizontal si el contenido es ancho
+        const imgW = canvas.width;
+        const imgH = canvas.height;
+        const ratio = imgW / imgH;
+
+        // Elegir orientación según proporción
+        const orientation = ratio > 1.2 ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4' });
+
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+
+        // Escalar imagen al ancho de la página
+        const scaledW = pageW;
+        const scaledH = pageW / ratio;
+
+        let yPos = 0;
+        let remaining = scaledH;
+
+        // Agregar páginas si el contenido es más alto que una página
+        while (remaining > 0) {
+          if (yPos > 0) pdf.addPage();
+
+          const sliceH = Math.min(pageH, remaining);
+          const srcY = (yPos / scaledH) * imgH;
+          const srcH = (sliceH / scaledH) * imgH;
+
+          // Crear canvas de slice
+          const sliceCanvas = document.createElement('canvas');
+          sliceCanvas.width = imgW;
+          sliceCanvas.height = srcH;
+          const ctx = sliceCanvas.getContext('2d');
+          ctx.drawImage(canvas, 0, srcY, imgW, srcH, 0, 0, imgW, srcH);
+          const sliceData = sliceCanvas.toDataURL('image/jpeg', 0.92);
+
+          pdf.addImage(sliceData, 'JPEG', 0, 0, scaledW, sliceH);
+
+          yPos += sliceH;
+          remaining -= sliceH;
+        }
+
+        // Nombre del archivo con fecha
+        const now = new Date();
+        const fecha = `${now.getDate().toString().padStart(2,'0')}-${(now.getMonth()+1).toString().padStart(2,'0')}-${now.getFullYear()}`;
+        pdf.save(`INASEP_Horario_${fecha}.pdf`);
+
+      } catch (err) {
+        console.error(err);
+        alert('No se pudo generar el PDF. Intenta nuevamente.');
+      } finally {
+        btn.classList.remove('loading');
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Descargar PDF`;
+      }
+    }
+  </script>
 
 </body>
 </html>
